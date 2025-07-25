@@ -4,7 +4,7 @@ import { getRoutingTable } from "../api";
 const RoutingTable = () => {
   const [table, setTable] = useState(null);
 
-  const fetchRoutingTable = async () => {
+  const fetchRoutingTableData = async () => {
     try {
       const response = await getRoutingTable();
       setTable(response.data);
@@ -15,9 +15,9 @@ const RoutingTable = () => {
   };
 
   useEffect(() => {
-    fetchRoutingTable();
+    fetchRoutingTableData();
     const interval = setInterval(() => {
-      fetchRoutingTable();
+      fetchRoutingTableData();
     }, 3000); // Update every 3 seconds
 
     return () => clearInterval(interval);

@@ -40,7 +40,7 @@ public class Constants {
     public static final int PING_INTERVAL = 8000;
     public static final int PING_RETRY = 3;
 
-    public static final int SEARCH_TIMEOUT = 10000;
+    public static final int SEARCH_TIMEOUT = 3000;
     public static final int FILE_DOWNLOAD_TIMEOUT = 2000;
 
     public static final String R_PING_MESSAGE_ID = "rPingMessage";

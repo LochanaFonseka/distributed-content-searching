@@ -1,20 +1,31 @@
 # distributed-content-searching
 
-Distributed content searching project
+Distributed file content searching project
 
 # How to Run the Application
 
-1. Start the Bootstrap Server:
+## 1. Run the Bootstrap Server:
 
 Open the bootstrap-server module.
-Run the BootstrapServer application to initialize the bootstrap server.
+Navigate to the src/main/java directory.
+Compile and run the BootstrapServer application using below commands:
 
-2. Run the Client Node Application:
+- javac BootstrapServer.java
+- java BootstrapServer.java
 
-Navigate to the file-sharing-client application.
-Follow the instructions in the README file to run the client node application.
+## 2. Run the Node Server Application:
 
-3. Launch the UI Application:
+Open the node-server module.
+Run the node-server application in docker using below command:
 
-Open the distributed-content-search application.
-Follow the instructions in the README file to run the UI application.
+- docker-compose up
+
+Please note that, you have to uncomment nodes to achieve required number of nodes in the network. Adding multiple nodes will increase resource usage.
+
+## 3. Run the Web Application:
+
+Open the web module.
+Build and run the web application in docker using below commands:
+
+- docker build -t web .
+- docker run -p 3000:80 -e REACT_APP_API_BASE_URL=http://localhost:5001 web
