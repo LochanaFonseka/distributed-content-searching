@@ -15,80 +15,85 @@ import java.util.logging.Logger;
 
 public class QueryHitHandler implements AbstractResponseHandler {
 
-    private static final Logger LOG = Logger.getLogger(QueryHitHandler.class.getName());
+    private static final Logger logger = Logger.getLogger(QueryHitHandler.class.getName());
 
-    private RoutingTable routingTable;
+    private RoutingTable nodeRoutingTable;
+    private BlockingQueue<ChannelMessage> outgoingMessages;
+    private TimeoutManager requestTimeoutManager;
 
-    private BlockingQueue<ChannelMessage> channelOut;
+    private static QueryHitHandler instance;
+    private Map<String, SearchResult> searchResults;
+    private long searchStartTimestamp;
 
-    private TimeoutManager timeoutManager;
-
-    private static QueryHitHandler queryHitHandler;
-
-    private Map<String, SearchResult> searchResutls;
-
-    private long searchInitiatedTime;
-
-    private QueryHitHandler(){
-
+    private QueryHitHandler() {
+        // Private constructor for singleton pattern
     }
 
-    public static synchronized QueryHitHandler getInstance(){
-        if (queryHitHandler == null){
-            queryHitHandler = new QueryHitHandler();
+    public static synchronized QueryHitHandler getInstance() {
+        if (instance == null) {
+            instance = new QueryHitHandler();
         }
-
-        return queryHitHandler;
+        return instance;
     }
 
     @Override
-    public synchronized void handleResponse(ChannelMessage message) {
-        LOG.fine("Received SEROK : " + "[content-hidden]"
-                + " from: " + message.getAddress()
-                + " port: " + message.getPort());
+    public synchronized void handleResponse(ChannelMessage response) {
+        logger.fine("Received SEROK response from: " + response.getAddress() +
+                " port: " + response.getPort());
 
-        StringTokenizer stringToken = new StringTokenizer(message.getMessage(), " ");
+        String[] messageParts = response.getMessage().split(" ");
+        int resultCount = Integer.parseInt(messageParts[2]);
+        String sourceAddress = messageParts[3].trim();
+        int sourcePort = Integer.parseInt(messageParts[4].trim());
+        int hopCount = Integer.parseInt(messageParts[5]);
 
-        String length = stringToken.nextToken();
-        String keyword = stringToken.nextToken();
-        int filesCount = Integer.parseInt(stringToken.nextToken());
-        String address = stringToken.nextToken().trim();
-        int port = Integer.parseInt(stringToken.nextToken().trim());
+        String nodeIdentifier = String.format(Constants.ADDRESS_KEY_FORMAT, sourceAddress, sourcePort);
 
-        String addressKey = String.format(Constants.ADDRESS_KEY_FORMAT, address, port);
+        processSearchResults(messageParts, resultCount, sourceAddress, sourcePort, hopCount, nodeIdentifier);
+    }
 
-        int hops = Integer.parseInt(stringToken.nextToken());
+    private void processSearchResults(String[] messageParts, int resultCount,
+                                      String address, int port, int hops,
+                                      String nodeKey) {
+        int currentIndex = 6; // Start of file names in message
+        long searchDuration = System.currentTimeMillis() - searchStartTimestamp;
 
-        while(filesCount > 0){
+        while (resultCount > 0 && currentIndex < messageParts.length) {
+            String fileName = StringEncoderDecoder.decode(messageParts[currentIndex]);
 
-            String fileName = StringEncoderDecoder.decode(stringToken.nextToken());
-
-            if (this.searchResutls != null){
-                if(!this.searchResutls.containsKey(addressKey + fileName)){
-                    this.searchResutls.put(addressKey + fileName,
-                            new SearchResult(fileName, address, port, hops,
-                                    (System.currentTimeMillis() - searchInitiatedTime)));
-
+            if (searchResults != null) {
+                String resultKey = nodeKey + fileName;
+                if (!searchResults.containsKey(resultKey)) {
+                    SearchResult result = new SearchResult(
+                            fileName,
+                            address,
+                            port,
+                            hops,
+                            searchDuration
+                    );
+                    searchResults.put(resultKey, result);
                 }
             }
 
-            filesCount--;
+            resultCount--;
+            currentIndex++;
         }
     }
 
     @Override
-    public void init(RoutingTable routingTable, BlockingQueue<ChannelMessage> channelOut, TimeoutManager timeoutManager) {
-        this.routingTable = routingTable;
-        this.channelOut = channelOut;
-        this.timeoutManager = timeoutManager;
+    public void init(RoutingTable routingTable,
+                     BlockingQueue<ChannelMessage> channelOut,
+                     TimeoutManager timeoutManager) {
+        this.nodeRoutingTable = routingTable;
+        this.outgoingMessages = channelOut;
+        this.requestTimeoutManager = timeoutManager;
     }
 
-    public void setSearchResutls(Map<String, SearchResult> searchResutls) {
-        this.searchResutls = searchResutls;
+    public void setSearchResults(Map<String, SearchResult> results) {
+        this.searchResults = results;
     }
 
-    public void setSearchInitiatedTime(long currentTimeinMillis){
-        this.searchInitiatedTime = currentTimeinMillis;
+    public void setSearchInitiatedTime(long startTime) {
+        this.searchStartTimestamp = startTime;
     }
-
 }

@@ -3,136 +3,114 @@ package lk.dc.dfs.filesharingapplication.domain.util;
 import java.util.ArrayList;
 
 public class ConsoleTable {
+    private static final int CELL_PADDING = 4;
+    private static final char HORIZONTAL_SEPARATOR = '-';
+    private static final char VERTICAL_SEPARATOR = '|';
+    private static final String PADDING_SPACES = " ".repeat(CELL_PADDING);
 
-    /*
-     * Modify these to suit your use
-     */
-    private final int TABLEPADDING = 4;
-    private final char SEPERATOR_CHAR = '-';
+    private final List<String> headers;
+    private final List<List<String>> rows;
+    private final List<Integer> columnWidths;
 
-    private ArrayList<String> headers;
-    private ArrayList<ArrayList<String>> table;
-    private ArrayList<Integer> maxLength;
-    private int rows,cols;
+    public ConsoleTable(List<String> headers, List<List<String>> data) {
+        this.headers = new ArrayList<>(headers);
+        this.rows = new ArrayList<>(data);
+        this.columnWidths = new ArrayList<>();
 
-    /*
-     * Constructor that needs two arraylist
-     * 1: The headersIs is one list containing strings with the columns headers
-     * 2: The content is an matrix of Strings build up with ArrayList containing the content
-     *
-     * Call the printTable method to print the table
-     */
-
-    public ConsoleTable(ArrayList<String> headersIn, ArrayList<ArrayList<String>> content){
-        this.headers = headersIn;
-        this.maxLength =  new ArrayList<Integer>();
-        //Set headers length to maxLength at first
-        for(int i = 0; i < headers.size(); i++){
-            maxLength.add(headers.get(i).length());
-        }
-        this.table = content;
-        calcMaxLengthAll();
+        initializeColumnWidths();
+        calculateAllColumnWidths();
     }
-    /*
-     * To update the matrix
-     */
-    public void updateField(int row, int col, String input){
-        //Update the value
-        table.get(row).set(col,input);
-        //Then calculate the max length of the column
-        calcMaxLengthCol(col);
+
+    public void updateCell(int rowIndex, int columnIndex, String value) {
+        validateIndices(rowIndex, columnIndex);
+        rows.get(rowIndex).set(columnIndex, value);
+        calculateColumnWidth(columnIndex);
     }
-    /*
-     * Prints the content in table to console
-     */
-    public void printTable(){
-        //Take out the
-        StringBuilder sb = new StringBuilder();
-        StringBuilder sbRowSep = new StringBuilder();
-        String padder = "";
-        int rowLength = 0;
-        String rowSeperator = "";
 
-        //Create padding string containing just containing spaces
-        for(int i = 0; i < TABLEPADDING; i++){
-            padder += " ";
+    public void display() {
+        String horizontalBorder = createHorizontalBorder();
+        StringBuilder output = new StringBuilder();
+
+        output.append(horizontalBorder).append("\n");
+        output.append(createHeaderRow()).append("\n");
+        output.append(horizontalBorder).append("\n");
+
+        for (List<String> row : rows) {
+            output.append(createDataRow(row)).append("\n");
+            output.append(horizontalBorder).append("\n");
         }
 
-        //Create the rowSeperator
-        for(int i = 0; i < maxLength.size(); i++){
-            sbRowSep.append("|");
-            for(int j = 0; j < maxLength.get(i)+(TABLEPADDING*2); j++){
-                sbRowSep.append(SEPERATOR_CHAR);
-            }
-        }
-        sbRowSep.append("|");
-        rowSeperator = sbRowSep.toString();
-
-        sb.append(rowSeperator);
-        sb.append("\n");
-        //HEADERS
-        sb.append("|");
-        for(int i = 0; i < headers.size(); i++){
-            sb.append(padder);
-            sb.append(headers.get(i));
-            //Fill up with empty spaces
-            for(int k = 0; k < (maxLength.get(i)-headers.get(i).length()); k++){
-                sb.append(" ");
-            }
-            sb.append(padder);
-            sb.append("|");
-        }
-        sb.append("\n");
-        sb.append(rowSeperator);
-        sb.append("\n");
-
-        //BODY
-        for(int i = 0; i < table.size(); i++){
-            ArrayList<String> tempRow = table.get(i);
-            //New row
-            sb.append("|");
-            for(int j = 0; j < tempRow.size(); j++){
-                sb.append(padder);
-                sb.append(tempRow.get(j));
-                //Fill up with empty spaces
-                for(int k = 0; k < (maxLength.get(j)-tempRow.get(j).length()); k++){
-                    sb.append(" ");
-                }
-                sb.append(padder);
-                sb.append("|");
-            }
-            sb.append("\n");
-            sb.append(rowSeperator);
-            sb.append("\n");
-        }
-        System.out.println(sb.toString());
+        System.out.print(output);
     }
-    /*
-     * Fills maxLenth with the length of the longest word
-     * in each column
-     *
-     * This will only be used if the user dont send any data
-     * in first init
-     */
-    private void calcMaxLengthAll(){
-        for(int i = 0; i < table.size(); i++){
-            ArrayList<String> temp = table.get(i);
-            for(int j = 0; j < temp.size(); j++){
-                //If the table content was longer then current maxLength - update it
-                if(temp.get(j).length() > maxLength.get(j)){
-                    maxLength.set(j, temp.get(j).length());
-                }
-            }
+
+    private void initializeColumnWidths() {
+        for (String header : headers) {
+            columnWidths.add(header.length());
         }
     }
-    /*
-     * Same as calcMaxLength but instead its only for the column given as inparam
-     */
-    private void calcMaxLengthCol(int col){
-        for(int i = 0; i < table.size(); i++){
-            if(table.get(i).get(col).length() > maxLength.get(col)){
-                maxLength.set(col, table.get(i).get(col).length());
+
+    private void calculateAllColumnWidths() {
+        for (int col = 0; col < headers.size(); col++) {
+            calculateColumnWidth(col);
+        }
+    }
+
+    private void calculateColumnWidth(int columnIndex) {
+        int maxWidth = headers.get(columnIndex).length();
+
+        for (List<String> row : rows) {
+            String cell = row.get(columnIndex);
+            if (cell.length() > maxWidth) {
+                maxWidth = cell.length();
             }
+        }
+
+        columnWidths.set(columnIndex, maxWidth);
+    }
+
+    private String createHorizontalBorder() {
+        StringBuilder border = new StringBuilder();
+        border.append(VERTICAL_SEPARATOR);
+
+        for (int width : columnWidths) {
+            int segmentLength = width + (2 * CELL_PADDING);
+            border.append(String.valueOf(HORIZONTAL_SEPARATOR).repeat(segmentLength));
+            border.append(VERTICAL_SEPARATOR);
+        }
+
+        return border.toString();
+    }
+
+    private String createHeaderRow() {
+        return createRow(headers);
+    }
+
+    private String createDataRow(List<String> rowData) {
+        return createRow(rowData);
+    }
+
+    private String createRow(List<String> cells) {
+        StringBuilder rowBuilder = new StringBuilder();
+        rowBuilder.append(VERTICAL_SEPARATOR);
+
+        for (int i = 0; i < cells.size(); i++) {
+            String cell = cells.get(i);
+            rowBuilder.append(PADDING_SPACES)
+                    .append(cell)
+                    .append(" ".repeat(columnWidths.get(i) - cell.length()))
+                    .append(PADDING_SPACES)
+                    .append(VERTICAL_SEPARATOR);
+        }
+
+        return rowBuilder.toString();
+    }
+
+    private void validateIndices(int row, int col) {
+        if (row < 0 || row >= rows.size()) {
+            throw new IndexOutOfBoundsException("Invalid row index");
+        }
+        if (col < 0 || col >= headers.size()) {
+            throw new IndexOutOfBoundsException("Invalid column index");
         }
     }
 }

@@ -14,197 +14,202 @@ import java.util.StringTokenizer;
 import java.util.concurrent.BlockingQueue;
 import java.util.logging.Logger;
 
-public class PingHandler implements AbstractRequestHandler, AbstractResponseHandler{
+public class PingHandler implements AbstractRequestHandler, AbstractResponseHandler {
 
-    private final Logger LOG = Logger.getLogger(PingHandler.class.getName());
+    private final Logger logger = Logger.getLogger(PingHandler.class.getName());
 
-    private static PingHandler pingHandler;
-
-    private boolean initiated;
-    private BlockingQueue<ChannelMessage> channelOut;
-    private RoutingTable routingTable;
-    private TimeoutManager timeoutManager;
-    private Map<String, Integer> pingFailureCount = new HashMap<String, Integer>();
-    private TimeoutCallback callback = new pingTimeoutCallback();
+    private static PingHandler instance;
+    private boolean isInitialized;
+    private BlockingQueue<ChannelMessage> outgoingMessages;
+    private RoutingTable neighborTable;
+    private TimeoutManager timeoutHandler;
+    private Map<String, Integer> failedPingAttempts = new HashMap<>();
+    private final TimeoutCallback timeoutCallback = new PingTimeoutHandler();
 
     private PingHandler() {
-        this.initiated = true;
+        this.isInitialized = true;
     }
 
     public synchronized static PingHandler getInstance() {
-        if (pingHandler == null){
-            pingHandler = new PingHandler();
+        if (instance == null) {
+            instance = new PingHandler();
         }
-        return pingHandler;
+        return instance;
     }
 
     @Override
-    public void sendRequest(ChannelMessage message) {
+    public void sendRequest(ChannelMessage msg) {
         try {
-            channelOut.put(message);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+            outgoingMessages.put(msg);
+        } catch (InterruptedException ex) {
+            ex.printStackTrace();
         }
     }
 
     @Override
-    public void handleResponse(ChannelMessage message) {
+    public void handleResponse(ChannelMessage receivedMsg) {
+        logger.fine("PING received from: " + receivedMsg.getAddress() +
+                " port: " + receivedMsg.getPort());
 
-        LOG.fine("Received PING : " + "[content-hidden]"
-                + " from: " + message.getAddress()
-                + " port: " + message.getPort());
+        String[] messageParts = receivedMsg.getMessage().split(" ");
+        String messageType = messageParts[1];
+        String senderAddress = messageParts[2].trim();
+        int senderPort = Integer.parseInt(messageParts[3].trim());
 
-        StringTokenizer stringToken = new StringTokenizer(message.getMessage(), " ");
-
-        String length = stringToken.nextToken();
-        String keyword = stringToken.nextToken();
-        String address = stringToken.nextToken().trim();
-        int port = Integer.parseInt(stringToken.nextToken().trim());
-        switch (keyword) {
+        switch (messageType) {
             case "BPING":
-                int hops = Integer.parseInt(stringToken.nextToken().trim());
-
-                //if a neighbour sends a bping, pass it to the other neighbours
-                if (routingTable.isANeighbour(address, port)) {
-                    if (hops > 0) {
-                        forwardBPing(address, port, hops - 1);
-                    }
-                } else {
-
-                    //check if we can add another neighbour
-                    int result = this.routingTable.getCount();
-                    if (result < Constants.MAX_NEIGHBOURS) {
-                        //if can add, then send a bpong
-                        String payload = String.format(Constants.BPONG_FORMAT,
-                                this.routingTable.getAddress(), this.routingTable.getPort());
-
-                        String rawMessage = String.format(Constants.MSG_FORMAT, payload.length() + 5, payload);
-                        ChannelMessage outGoingMsg = new ChannelMessage(address,
-                                port, rawMessage);
-                        this.sendRequest(outGoingMsg);
-                    } else {
-                        //otherwise send it to the neighbours
-                        if (hops > 0) {
-                            forwardBPing(address, port, hops - 1);
-                        }
-                    }
-                }
-
+                processBpingMessage(messageParts, senderAddress, senderPort);
                 break;
+
             case "LEAVE":
-                System.out.println("receiving leave");
-                this.routingTable.removeNeighbour(address, port);
-                if (routingTable.getCount() <= Constants.MIN_NEIGHBOURS) {
-                    sendBPing(address, port);
-                }
-                this.routingTable.print();
-
+                processLeaveMessage(senderAddress, senderPort);
                 break;
+
             default:
-                int result = this.routingTable.addNeighbour(address, port, message.getPort());
-
-                if (result != 0) {
-                    String payload = String.format(Constants.PONG_FORMAT,
-                            this.routingTable.getAddress(), this.routingTable.getPort());
-
-                    String rawMessage = String.format(Constants.MSG_FORMAT, payload.length() + 5, payload);
-                    ChannelMessage outGoingMsg = new ChannelMessage(address,
-                            port, rawMessage);
-                    this.sendRequest(outGoingMsg);
-                }
-                break;
+                processStandardPing(senderAddress, senderPort, receivedMsg.getPort());
         }
-
-//        this.routingTable.print();
     }
 
-    public void sendPing(String address, int port) {
-        String payload = String.format(Constants.PING_FORMAT,
-                this.routingTable.getAddress(),
-                this.routingTable.getPort());
-        String rawMessage = String.format(Constants.MSG_FORMAT, payload.length() + 5,payload);
-        ChannelMessage message = new ChannelMessage(address, port,rawMessage);
-        this.pingFailureCount.putIfAbsent(
-                String.format(Constants.PING_MESSAGE_ID_FORMAT, address, port),
-                0);
-        this.timeoutManager.registerRequest(
-                String.format(Constants.PING_MESSAGE_ID_FORMAT, address, port),
+    private void processBpingMessage(String[] msgParts, String addr, int port) {
+        int remainingHops = Integer.parseInt(msgParts[4].trim());
+
+        if (neighborTable.isANeighbour(addr, port)) {
+            if (remainingHops > 0) {
+                forwardBpingMessage(addr, port, remainingHops - 1);
+            }
+        } else {
+            if (neighborTable.getCount() < Constants.MAX_NEIGHBOURS) {
+                sendBpongResponse(addr, port);
+            } else if (remainingHops > 0) {
+                forwardBpingMessage(addr, port, remainingHops - 1);
+            }
+        }
+    }
+
+    private void processLeaveMessage(String addr, int port) {
+        neighborTable.removeNeighbour(addr, port);
+        if (neighborTable.getCount() <= Constants.MIN_NEIGHBOURS) {
+            initiateBping(addr, port);
+        }
+        neighborTable.printStatus();
+    }
+
+    private void processStandardPing(String addr, int port, int receivedPort) {
+        int addResult = neighborTable.addNeighbour(addr, port, receivedPort);
+        if (addResult != 0) {
+            sendPongResponse(addr, port);
+        }
+    }
+
+    public void sendPing(String targetAddress, int targetPort) {
+        String messageContent = String.format(Constants.PING_FORMAT,
+                neighborTable.getAddress(),
+                neighborTable.getPort());
+
+        String fullMessage = String.format(Constants.MSG_FORMAT,
+                messageContent.length() + 5, messageContent);
+
+        ChannelMessage pingMsg = new ChannelMessage(targetAddress, targetPort, fullMessage);
+
+        String messageId = String.format(Constants.PING_MESSAGE_ID_FORMAT,
+                targetAddress, targetPort);
+
+        failedPingAttempts.putIfAbsent(messageId, 0);
+
+        timeoutHandler.registerRequest(
+                messageId,
                 Constants.PING_TIMEOUT,
-                this.callback
-                );
-        this.sendRequest(message);
+                timeoutCallback
+        );
 
+        sendRequest(pingMsg);
     }
 
-    private void sendBPing(String address, int port) {
-        ArrayList<String> targets = routingTable.getOtherNeighbours(address,port);
-        String payload = String.format(Constants.BPING_FORMAT,
-                this.routingTable.getAddress(),
-                this.routingTable.getPort(),
+    private void initiateBping(String excludedAddress, int excludedPort) {
+        List<String> recipients = neighborTable.getOtherNeighbours(excludedAddress, excludedPort);
+        String messageContent = String.format(Constants.BPING_FORMAT,
+                neighborTable.getAddress(),
+                neighborTable.getPort(),
                 Constants.BPING_HOP_LIMIT);
-        String rawMessage = String.format(Constants.MSG_FORMAT, payload.length() + 5,payload);
-        for (String target: targets) {
-            ChannelMessage message = new ChannelMessage(
-                    target.split(":")[0],
-                    Integer.parseInt(target.split(":")[1]), rawMessage);
-            sendRequest(message);
+
+        String fullMessage = String.format(Constants.MSG_FORMAT, messageContent.length() + 5, messageContent);
+
+        for (String recipient : recipients) {
+            String[] parts = recipient.split(":");
+            ChannelMessage msg = new ChannelMessage(parts[0], Integer.parseInt(parts[1]), fullMessage);
+            sendRequest(msg);
         }
     }
 
-    private void forwardBPing(
-            String originAddress,
-            int originPort,
-            int currentHop) {
-        ArrayList<String> targets = routingTable.getOtherNeighbours(originAddress,originPort);
-        String payload = String.format(Constants.BPING_FORMAT,
-                originAddress,
-                originPort,
-                currentHop);
-        String rawMessage = String.format(Constants.MSG_FORMAT, payload.length() + 5,payload);
-        for (String target: targets) {
-            ChannelMessage message = new ChannelMessage(
-                    target.split(":")[0],
-                    Integer.parseInt(target.split(":")[1]), rawMessage);
-            sendRequest(message);
+    private void forwardBpingMessage(String originalAddress, int originalPort, int currentHops) {
+        List<String> forwardTargets = neighborTable.getOtherNeighbours(originalAddress, originalPort);
+        String messageContent = String.format(Constants.BPING_FORMAT,
+                originalAddress,
+                originalPort,
+                currentHops);
+
+        String fullMessage = String.format(Constants.MSG_FORMAT, messageContent.length() + 5, messageContent);
+
+        for (String target : forwardTargets) {
+            String[] parts = target.split(":");
+            ChannelMessage msg = new ChannelMessage(parts[0], Integer.parseInt(parts[1]), fullMessage);
+            sendRequest(msg);
         }
     }
 
+    private void sendPongResponse(String address, int port) {
+        String responseContent = String.format(Constants.PONG_FORMAT,
+                neighborTable.getAddress(),
+                neighborTable.getPort());
+
+        String fullMessage = String.format(Constants.MSG_FORMAT,
+                responseContent.length() + 5, responseContent);
+
+        ChannelMessage response = new ChannelMessage(address, port, fullMessage);
+        sendRequest(response);
+    }
+
+    private void sendBpongResponse(String address, int port) {
+        String responseContent = String.format(Constants.BPONG_FORMAT,
+                neighborTable.getAddress(),
+                neighborTable.getPort());
+
+        String fullMessage = String.format(Constants.MSG_FORMAT,
+                responseContent.length() + 5, responseContent);
+
+        ChannelMessage response = new ChannelMessage(address, port, fullMessage);
+        sendRequest(response);
+    }
 
     @Override
-    public void init(
-            RoutingTable routingTable,
-            BlockingQueue<ChannelMessage> channelOut,
-            TimeoutManager timeoutManager) {
-            this.routingTable = routingTable;
-            this.channelOut = channelOut;
-            this.timeoutManager = timeoutManager;
-
+    public void init(RoutingTable routingTable,
+                     BlockingQueue<ChannelMessage> channelOut,
+                     TimeoutManager timeoutManager) {
+        this.neighborTable = routingTable;
+        this.outgoingMessages = channelOut;
+        this.timeoutHandler = timeoutManager;
     }
 
-    private class pingTimeoutCallback implements TimeoutCallback {
-
+    private class PingTimeoutHandler implements TimeoutCallback {
         @Override
         public void onTimeout(String messageId) {
-            pingFailureCount.put(messageId,pingFailureCount.get(messageId) + 1);
-            if(pingFailureCount.get(messageId) >= Constants.PING_RETRY) {
-                LOG.fine("neighbour lost :( =>" + messageId);
-                routingTable.removeNeighbour(
-                        messageId.split(":")[1],
-                        Integer.valueOf(messageId.split(":")[2]));
-            }
+            int attempts = failedPingAttempts.getOrDefault(messageId, 0) + 1;
+            failedPingAttempts.put(messageId, attempts);
 
-            if (routingTable.getCount() < Constants.MIN_NEIGHBOURS) {
-                sendBPing(
-                        messageId.split(":")[1],
-                        Integer.valueOf(messageId.split(":")[2]));
+            if (attempts >= Constants.PING_RETRY) {
+                logger.fine("Neighbor unavailable: " + messageId);
+                String[] parts = messageId.split(":");
+                neighborTable.removeNeighbour(parts[1], Integer.valueOf(parts[2]));
+
+                if (neighborTable.getCount() < Constants.MIN_NEIGHBOURS) {
+                    initiateBping(parts[1], Integer.valueOf(parts[2]));
+                }
             }
         }
 
         @Override
         public void onResponse(String messageId) {
-            pingFailureCount.put(messageId, 0);
+            failedPingAttempts.put(messageId, 0);
         }
     }
-
-
 }

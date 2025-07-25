@@ -18,138 +18,150 @@ import java.util.logging.Logger;
 
 public class MessageBroker extends Thread {
 
-    private final Logger LOG = Logger.getLogger(MessageBroker.class.getName());
+    private final Logger logger = Logger.getLogger(MessageBroker.class.getName());
 
-    private volatile boolean process = true;
+    private volatile boolean isRunning = true;
 
-    private final UDPServer server;
-    private final UDPClient client;
+    private final UDPServer udpServer;
+    private final UDPClient udpClient;
 
-    private BlockingQueue<ChannelMessage> channelIn;
-    private BlockingQueue<ChannelMessage> channelOut;
+    private BlockingQueue<ChannelMessage> incomingChannel;
+    private BlockingQueue<ChannelMessage> outgoingChannel;
 
     private RoutingTable routingTable;
     private PingHandler pingHandler;
     private LeaveHandler leaveHandler;
-    private SearchQueryHandler searchQueryHandler;
-    private FileManager fileManager;
+    private SearchQueryHandler searchHandler;
+    private FileManager fileHandler;
 
-    private TimeoutManager timeoutManager = new TimeoutManager();
+    private TimeoutManager timeoutHandler = new TimeoutManager();
 
-    public MessageBroker(String address, int port) throws SocketException {
-        channelIn = new LinkedBlockingQueue<ChannelMessage>();
-        DatagramSocket socket = new DatagramSocket(port);
-        this.server = new UDPServer(channelIn, socket);
+    public MessageBroker(String ipAddress, int portNumber) throws SocketException {
+        incomingChannel = new LinkedBlockingQueue<>();
+        DatagramSocket serverSocket = new DatagramSocket(portNumber);
+        this.udpServer = new UDPServer(incomingChannel, serverSocket);
 
-        channelOut = new LinkedBlockingQueue<ChannelMessage>();
-        this.client = new UDPClient(channelOut, new DatagramSocket());
+        outgoingChannel = new LinkedBlockingQueue<>();
+        this.udpClient = new UDPClient(outgoingChannel, new DatagramSocket());
 
-        this.routingTable = new RoutingTable(address, port);
+        this.routingTable = new RoutingTable(ipAddress, portNumber);
 
         this.pingHandler = PingHandler.getInstance();
         this.leaveHandler = LeaveHandler.getInstance();
 
-        this.fileManager = FileManager.getInstance("");
+        this.fileHandler = FileManager.getInstance("");
 
-        this.pingHandler.init(this.routingTable, this.channelOut, this.timeoutManager);
-        this.leaveHandler.init(this.routingTable, this.channelOut, this.timeoutManager);
+        initializeHandlers();
+        setupPingTimeout();
 
-        this.searchQueryHandler = SearchQueryHandler.getInstance();
-        this.searchQueryHandler.init(routingTable, channelOut, timeoutManager);
+        logger.fine("Initializing server components");
+    }
 
-        LOG.fine("starting server");
-        timeoutManager.registerRequest(Constants.R_PING_MESSAGE_ID, Constants.PING_INTERVAL, new TimeoutCallback() {
-            @Override
-            public void onTimeout(String messageId) {
-                sendRoutinePing();
-            }
+    private void initializeHandlers() {
+        this.pingHandler.init(this.routingTable, this.outgoingChannel, this.timeoutHandler);
+        this.leaveHandler.init(this.routingTable, this.outgoingChannel, this.timeoutHandler);
 
-            @Override
-            public void onResponse(String messageId) {
-            }
+        this.searchHandler = SearchQueryHandler.getInstance();
+        this.searchHandler.init(routingTable, outgoingChannel, timeoutHandler);
+    }
 
-        });
+    private void setupPingTimeout() {
+        timeoutHandler.registerRequest(
+                Constants.R_PING_MESSAGE_ID,
+                Constants.PING_INTERVAL,
+                new TimeoutCallback() {
+                    @Override
+                    public void onTimeout(String messageId) {
+                        sendPeriodicPings();
+                    }
+
+                    @Override
+                    public void onResponse(String messageId) {
+                        // No action needed on response
+                    }
+                }
+        );
     }
 
     @Override
-    public void run(){
-        this.server.start();
-        this.client.start();
-        this.process();
+    public void run() {
+        this.udpServer.start();
+        this.udpClient.start();
+        this.processMessages();
     }
 
-    public void process() {
-        while (process) {
+    public void processMessages() {
+        while (isRunning) {
             try {
-                ChannelMessage message = channelIn.poll(100, TimeUnit.MILLISECONDS);
-                if (message != null) {
-                    LOG.info("Received Message: " + "[content-hidden]"
-                            + " from: " + message.getAddress()
-                            + " port: " + message.getPort());
-
-                    AbstractResponseHandler abstractResponseHandler
-                            = ResponseHandlerFactory.getResponseHandler(
-                            message.getMessage().split(" ")[1],
-                            this
-                    );
-
-                    if (abstractResponseHandler != null){
-                        abstractResponseHandler.handleResponse(message);
-                    }
-
+                ChannelMessage receivedMessage = incomingChannel.poll(100, TimeUnit.MILLISECONDS);
+                if (receivedMessage != null) {
+                    logIncomingMessage(receivedMessage);
+                    handleMessage(receivedMessage);
                 }
-                timeoutManager.checkForTimeout();
+                timeoutHandler.verifyTimeouts();
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Thread.currentThread().interrupt();
+                logger.log(Level.WARNING, "Message processing interrupted", e);
             }
         }
     }
 
-    public void stopProcessing() {
-        this.process = false;
-        server.stopProcessing();
+    private void logIncomingMessage(ChannelMessage message) {
+        logger.info(String.format("Received Message from: %s port: %d",
+                message.getAddress(), message.getPort()));
     }
 
-    public void sendPing(String address, int port) {
-        this.pingHandler.sendPing(address, port);
+    private void handleMessage(ChannelMessage message) {
+        String messageType = message.getMessage().split(" ")[1];
+        AbstractResponseHandler handler =
+                ResponseHandlerFactory.getResponseHandler(messageType, this);
+
+        if (handler != null) {
+            handler.processResponse(message);
+        }
     }
 
-    public void doSearch(String keyword){
-        this.searchQueryHandler.doSearch(keyword);
+    public void terminate() {
+        this.isRunning = false;
+        udpServer.stopProcessing();
     }
 
-    public BlockingQueue<ChannelMessage> getChannelIn() {
-        return channelIn;
+    public void sendPing(String targetAddress, int targetPort) {
+        this.pingHandler.sendPing(targetAddress, targetPort);
     }
 
-    public BlockingQueue<ChannelMessage> getChannelOut() {
-        return channelOut;
+    public void initiateSearch(String searchTerm) {
+        this.searchHandler.doSearch(searchTerm);
     }
 
-    public TimeoutManager getTimeoutManager() {
-        return timeoutManager;
+    public BlockingQueue<ChannelMessage> getIncomingChannel() {
+        return incomingChannel;
+    }
+
+    public BlockingQueue<ChannelMessage> getOutgoingChannel() {
+        return outgoingChannel;
+    }
+
+    public TimeoutManager getTimeoutHandler() {
+        return timeoutHandler;
     }
 
     public RoutingTable getRoutingTable() {
         return routingTable;
     }
 
-
-    private void sendRoutinePing() {
-        ArrayList<String> neighbours = routingTable.toList();
-        for (String n: neighbours) {
-            String address = n.split(":")[0];
-            int port = Integer.valueOf(n.split(":")[1]);
-            sendPing(address, port);
-
-        }
+    private void sendPeriodicPings() {
+        routingTable.toList().forEach(neighbor -> {
+            String[] parts = neighbor.split(":");
+            sendPing(parts[0], Integer.parseInt(parts[1]));
+        });
     }
 
-    public void sendLeave() {
+    public void sendLeaveNotification() {
         this.leaveHandler.sendLeave();
     }
 
-    public List<String> getFiles() {
-        return this.fileManager.getFileNames();
+    public List<String> getAvailableFiles() {
+        return this.fileHandler.getFileNames();
     }
 }

@@ -9,61 +9,71 @@ import java.util.logging.Logger;
 
 public class DataSendingOperation implements Runnable {
 
-    private Socket clientSocket;
-    private BufferedReader in = null;
+    private static final Logger LOG = Logger.getLogger(DataSendingOperation.class.getName());
 
-    private final Logger LOG = Logger.getLogger(DataSendingOperation.class.getName());
+    private final Socket clientSocket;
+    private final String userName;
+    private BufferedReader in;
 
-    private String userName;
-
-    public DataSendingOperation(Socket client, String userName) {
-        this.clientSocket = client;
-        this.userName = userName;
+    public DataSendingOperation(Socket clientSocket, String userName) {
+        this.clientSocket = Objects.requireNonNull(clientSocket, "Client socket cannot be null");
+        this.userName = Objects.requireNonNull(userName, "Username cannot be null");
     }
 
     @Override
     public void run() {
-        try {
-            in = new BufferedReader(new InputStreamReader(
-                    clientSocket.getInputStream()));
-            DataInputStream dIn = new DataInputStream(clientSocket.getInputStream());
+        try (DataInputStream dIn = new DataInputStream(clientSocket.getInputStream())) {
+            in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
             String fileName = dIn.readUTF();
 
             if (fileName != null) {
-                sendFile(FileManager.getInstance("").getFile(fileName));
+                File requestedFile = FileManager.getInstance("").getFile(fileName);
+                if (requestedFile.exists()) {
+                    sendFile(requestedFile);
+                } else {
+                    LOG.severe("Requested file not found: " + fileName);
+                }
             }
-            in.close();
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.log(Level.SEVERE, "Error during file transfer operation", e);
+        } finally {
+            closeResources();
         }
     }
 
-
     public void sendFile(File file) {
-        try {
-            //handle file read
-            File myFile = file;
-            byte[] mybytearray = new byte[(int) myFile.length()];
+        try (FileInputStream fis = new FileInputStream(file);
+             BufferedInputStream bis = new BufferedInputStream(fis);
+             OutputStream os = clientSocket.getOutputStream();
+             DataOutputStream dos = new DataOutputStream(os)) {
 
-            FileInputStream fis = new FileInputStream(myFile);
-            BufferedInputStream bis = new BufferedInputStream(fis);
+            byte[] fileBytes = new byte[(int) file.length()];
             DataInputStream dis = new DataInputStream(bis);
-            dis.readFully(mybytearray, 0, mybytearray.length);
+            dis.readFully(fileBytes, 0, fileBytes.length);
 
-            //handle file send over socket
-            OutputStream os = clientSocket.getOutputStream();
-
-            //Sending file name and file size to the server
-            DataOutputStream dos = new DataOutputStream(os);
-            dos.writeUTF(myFile.getName());
-            dos.writeLong(mybytearray.length);
-            dos.write(mybytearray, 0, mybytearray.length);
+            dos.writeUTF(file.getName());
+            dos.writeLong(fileBytes.length);
+            dos.write(fileBytes, 0, fileBytes.length);
             dos.flush();
-            fis.close();
-            LOG.fine("File " + file.getName() + " sent to client.");
-        } catch (Exception e) {
-            LOG.severe("File does not exist!");
-            e.printStackTrace();
+
+            LOG.fine("File " + file.getName() + " sent successfully to " + userName);
+        } catch (FileNotFoundException e) {
+            LOG.severe("File not found: " + file.getName());
+        } catch (IOException e) {
+            LOG.log(Level.SEVERE, "Error sending file: " + file.getName(), e);
+        }
+    }
+
+    private void closeResources() {
+        try {
+            if (in != null) {
+                in.close();
+            }
+            if (clientSocket != null && !clientSocket.isClosed()) {
+                clientSocket.close();
+            }
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "Error closing resources", e);
         }
     }
 }

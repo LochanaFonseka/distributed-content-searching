@@ -7,72 +7,43 @@ import java.util.logging.Logger;
 
 public class ResponseHandlerFactory {
 
-    private static final Logger LOG = Logger.getLogger(ResponseHandlerFactory.class.getName());
+    private static final Logger logger = Logger.getLogger(ResponseHandlerFactory.class.getName());
 
-    public static AbstractResponseHandler getResponseHandler(String keyword,
-                                                             MessageBroker messageBroker){
-        switch (keyword){
-            case "PING":
-                AbstractResponseHandler pingHandler = PingHandler.getInstance();
-                pingHandler.init(
-                        messageBroker.getRoutingTable(),
-                        messageBroker.getChannelOut(),
-                        messageBroker.getTimeoutManager()
-                );
-                return pingHandler;
+    private static final Map<String, Supplier<AbstractResponseHandler>> HANDLER_MAP =
+            createHandlerMap();
 
-            case "BPING":
-                AbstractResponseHandler bPingHandler = PingHandler.getInstance();
-                bPingHandler.init(
-                        messageBroker.getRoutingTable(),
-                        messageBroker.getChannelOut(),
-                        messageBroker.getTimeoutManager()
-                );
-                return bPingHandler;
+    private static Map<String, Supplier<AbstractResponseHandler>> createHandlerMap() {
+        Map<String, Supplier<AbstractResponseHandler>> map = new HashMap<>();
+        map.put("PING", PingHandler::getInstance);
+        map.put("BPING", PingHandler::getInstance);
+        map.put("PONG", PongHandler::getInstance);
+        map.put("BPONG", PongHandler::getInstance);
+        map.put("SER", SearchQueryHandler::getInstance);
+        map.put("SEROK", QueryHitHandler::getInstance);
+        map.put("LEAVE", PingHandler::getInstance);
+        return map;
+    }
 
-            case "PONG":
-                AbstractResponseHandler pongHandler = PongHandler.getInstance();
-                pongHandler.init(
-                        messageBroker.getRoutingTable(),
-                        messageBroker.getChannelOut(),
-                        messageBroker.getTimeoutManager()
-                );
-                return pongHandler;
+    public static AbstractResponseHandler getHandlerForMessage(String messageType,
+                                                               MessageBroker broker) {
+        Supplier<AbstractResponseHandler> handlerSupplier = HANDLER_MAP.get(messageType);
 
-            case "BPONG":
-                AbstractResponseHandler bpongHandler = PongHandler.getInstance();
-                bpongHandler.init(
-                        messageBroker.getRoutingTable(),
-                        messageBroker.getChannelOut(),
-                        messageBroker.getTimeoutManager()
-                );
-                return bpongHandler;
-
-            case "SER":
-                AbstractResponseHandler searchQueryHandler = SearchQueryHandler.getInstance();
-                searchQueryHandler.init(messageBroker.getRoutingTable(),
-                        messageBroker.getChannelOut(),
-                        messageBroker.getTimeoutManager());
-                return searchQueryHandler;
-
-            case "SEROK":
-                AbstractResponseHandler queryHitHandler = QueryHitHandler.getInstance();
-                queryHitHandler.init(messageBroker.getRoutingTable(),
-                        messageBroker.getChannelOut(),
-                        messageBroker.getTimeoutManager());
-                return queryHitHandler;
-
-            case "LEAVE":
-                AbstractResponseHandler leaveHandler = PingHandler.getInstance();
-                leaveHandler.init(
-                        messageBroker.getRoutingTable(),
-                        messageBroker.getChannelOut(),
-                        messageBroker.getTimeoutManager()
-                );
-                return leaveHandler;
-            default:
-                LOG.severe("Unknown keyword received in Response Handler : " + keyword);
-                return null;
+        if (handlerSupplier == null) {
+            logger.severe("Unsupported message type received: " + messageType);
+            return null;
         }
+
+        AbstractResponseHandler handler = handlerSupplier.get();
+        initializeHandler(handler, broker);
+        return handler;
+    }
+
+    private static void initializeHandler(AbstractResponseHandler handler,
+                                          MessageBroker broker) {
+        handler.init(
+                broker.getRoutingTable(),
+                broker.getChannelOut(),
+                broker.getTimeoutManager()
+        );
     }
 }

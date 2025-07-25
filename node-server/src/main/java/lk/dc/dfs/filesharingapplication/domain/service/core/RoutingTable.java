@@ -11,113 +11,111 @@ import java.util.logging.Logger;
 
 public class RoutingTable {
 
-    private final Logger LOG = Logger.getLogger(RoutingTable.class.getName());
-    private ArrayList<Neighbour> neighbours;
-    private final String address;
-    private final int port;
+    private final Logger tableLogger = Logger.getLogger(RoutingTable.class.getSimpleName());
+    private final List<Neighbour> neighborList;
+    private final String localAddress;
+    private final int localPort;
 
-    public RoutingTable(String address, int port) {
-        this.address = address;
-        this.port = port;
-        this.neighbours = new ArrayList<>();
+    public RoutingTable(String localAddress, int localPort) {
+        this.localAddress = localAddress;
+        this.localPort = localPort;
+        this.neighborList = new ArrayList<>();
     }
 
-    public synchronized int addNeighbour(String address, int port, int clientPort) {
-        for (Neighbour n: neighbours) {
-            if (n.equals(address, port)){
-                n.Ping();
-                return neighbours.size();
-            }
+    public synchronized int addNeighbor(String neighborAddress, int neighborPort, int clientPort) {
+        Optional<Neighbour> existing = findNeighbor(neighborAddress, neighborPort);
+
+        if (existing.isPresent()) {
+            existing.get().updatePing();
+            return neighborList.size();
         }
-        if (neighbours.size() >= Constants.MAX_NEIGHBOURS) {
+
+        if (neighborList.size() >= Constants.MAX_NEIGHBOURS) {
             return 0;
         }
-        neighbours.add(new Neighbour(address, port, clientPort));
 
-        LOG.fine("Adding neighbour : " + address + ":" + port);
-        return neighbours.size();
+        neighborList.add(new Neighbour(neighborAddress, neighborPort, clientPort));
+        tableLogger.log(Level.FINE, "Added new neighbor: {0}:{1}",
+                new Object[]{neighborAddress, neighborPort});
+
+        return neighborList.size();
     }
 
-    public synchronized int removeNeighbour(String address, int port) {
-        Neighbour toRemove = null;
-        for (Neighbour n: neighbours) {
-            if (n.equals(address, port)) {
-                toRemove = n;
-            }
-        }
-        if (toRemove != null) {
-            neighbours.remove(toRemove);
-            return neighbours.size();
+    public synchronized int removeNeighbor(String neighborAddress, int neighborPort) {
+        Optional<Neighbour> toRemove = findNeighbor(neighborAddress, neighborPort);
+
+        if (toRemove.isPresent()) {
+            neighborList.remove(toRemove.get());
+            return neighborList.size();
         }
         return 0;
     }
-    public synchronized int getCount() {
-        return neighbours.size();
+
+    public synchronized int getNeighborCount() {
+        return neighborList.size();
     }
 
-    public synchronized void print() {
-        System.out.println("Total neighbours: " + neighbours.size());
-        System.out.println("Address: " + address + ":" + port);
-        System.out.println("++++++++++++++++++++++++++");
-        for (Neighbour n :neighbours) {
-            System.out.println(
-                    "Address: " + n.getAddress()
-                    + " Port: " + n.getPort()
-                    + " Pings: " + n.getPingPongs()
-            );
-        }
+    public synchronized void displayRoutingInfo() {
+        System.out.println("Current Neighbors: " + neighborList.size());
+        System.out.println("Local Node: " + localAddress + ":" + localPort);
+        System.out.println("--------------------------");
+        neighborList.forEach(neighbor ->
+                System.out.printf("Address: %s Port: %d Pings: %d%n",
+                        neighbor.getAddress(),
+                        neighbor.getPort(),
+                        neighbor.getPingPongs())
+        );
     }
 
+    @Override
     public synchronized String toString() {
-        String table = "Total neighbours: " + neighbours.size() + "\n";
-        table += "Address: " + address + ":" + port + "\n";
-        table += "++++++++++++++++++++++++++" + "\n";
-        for (Neighbour n :neighbours) {
-            table +=
-                    "Address: " + n.getAddress()
-                            + " Port: " + n.getPort()
-                            + " Pings: " + n.getPingPongs() + "\n"
-            ;
-        }
-        return table;
+        StringBuilder builder = new StringBuilder();
+        builder.append("Neighbor Count: ").append(neighborList.size()).append("\n");
+        builder.append("Local Node: ").append(localAddress).append(":").append(localPort).append("\n");
+        builder.append("--------------------------\n");
+
+        neighborList.forEach(neighbor ->
+                builder.append(String.format("Address: %s Port: %d Pings: %d%n",
+                        neighbor.getAddress(),
+                        neighbor.getPort(),
+                        neighbor.getPingPongs()))
+        );
+
+        return builder.toString();
     }
 
-    public synchronized ArrayList<String> toList() {
-        ArrayList<String> list = new ArrayList<>();
-        for (Neighbour n: neighbours) {
-            list.add(n.toString());
-        }
-        return list;
+    public synchronized List<String> getNeighborStrings() {
+        return neighborList.stream()
+                .map(Neighbour::toString)
+                .collect(Collectors.toList());
     }
 
-    public String getAddress() {
-        return address;
+    public String getLocalAddress() {
+        return localAddress;
     }
 
-    public int getPort() {
-        return port;
+    public int getLocalPort() {
+        return localPort;
     }
 
-    public ArrayList<Neighbour> getNeighbours() {
-        return neighbours;
+    public List<Neighbour> getAllNeighbors() {
+        return new ArrayList<>(neighborList);
     }
 
-    public boolean isANeighbour(String address, int port) {
-        for (Neighbour n: neighbours) {
-            if (n.equals(address, port)) {
-                return  true;
-            }
-        }
-        return false;
+    public boolean containsNeighbor(String neighborAddress, int neighborPort) {
+        return findNeighbor(neighborAddress, neighborPort).isPresent();
     }
 
-    public ArrayList<String> getOtherNeighbours(String address, int port) {
-        ArrayList<String> list = new ArrayList<>();
-        for (Neighbour n: neighbours) {
-            if(!n.equals(address, port)) {
-                list.add(n.toString());
-            }
-        }
-        return list;
+    public List<String> getOtherNeighbors(String excludeAddress, int excludePort) {
+        return neighborList.stream()
+                .filter(n -> !n.equals(excludeAddress, excludePort))
+                .map(Neighbour::toString)
+                .collect(Collectors.toList());
+    }
+
+    private Optional<Neighbour> findNeighbor(String address, int port) {
+        return neighborList.stream()
+                .filter(n -> n.equals(address, port))
+                .findFirst();
     }
 }

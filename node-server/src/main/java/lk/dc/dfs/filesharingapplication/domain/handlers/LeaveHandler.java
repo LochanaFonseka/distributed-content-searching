@@ -13,44 +13,47 @@ import java.util.concurrent.BlockingQueue;
 
 public class LeaveHandler implements AbstractRequestHandler {
 
-    private RoutingTable routingTable;
-    private BlockingQueue<ChannelMessage> channelOut;
-    private static LeaveHandler leaveHandler;
+    private RoutingTable routingInformation;
+    private BlockingQueue<ChannelMessage> outgoingChannel;
+    private static LeaveHandler singletonInstance;
 
-    public synchronized static LeaveHandler getInstance() {
-        if (leaveHandler == null){
-            leaveHandler = new LeaveHandler();
+    public synchronized static LeaveHandler obtainInstance() {
+        if (singletonInstance == null) {
+            singletonInstance = new LeaveHandler();
         }
-        return leaveHandler;
+        return singletonInstance;
     }
 
-    public void sendLeave () {
-        String payload = String.format(Constants.LEAVE_FORMAT,
-                this.routingTable.getAddress(),
-                this.routingTable.getPort());
-        String rawMessage = String.format(Constants.MSG_FORMAT, payload.length() + 5,payload);
-        ArrayList<Neighbour> neighbours = routingTable.getNeighbours();
-        for (Neighbour n: neighbours) {
-            ChannelMessage message = new ChannelMessage(n.getAddress(), n.getPort(),rawMessage);
-            sendRequest(message);
-        }
+    public void sendLeave() {
+        String messageContent = String.format(Constants.LEAVE_FORMAT,
+                this.routingInformation.getAddress(),
+                this.routingInformation.getPort());
+        String completeMessage = String.format(Constants.MSG_FORMAT,
+                messageContent.length() + 5, messageContent);
 
+        for (Neighbour neighbour : routingInformation.getNeighbours()) {
+            ChannelMessage msg = new ChannelMessage(
+                    neighbour.getAddress(),
+                    neighbour.getPort(),
+                    completeMessage);
+            transmitRequest(msg);
+        }
     }
 
     @Override
-    public void init(RoutingTable routingTable,
-                     BlockingQueue<ChannelMessage> channelOut,
-                     TimeoutManager timeoutManager) {
-        this.routingTable = routingTable;
-        this.channelOut = channelOut;
+    public void init(RoutingTable routingData,
+                     BlockingQueue<ChannelMessage> outputChannel,
+                     TimeoutManager timeoutHandler) {
+        this.routingInformation = routingData;
+        this.outgoingChannel = outputChannel;
     }
 
     @Override
-    public void sendRequest(ChannelMessage message) {
+    public void sendRequest(ChannelMessage msg) {
         try {
-            channelOut.put(message);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+            outgoingChannel.put(msg);
+        } catch (InterruptedException exception) {
+            exception.printStackTrace();
         }
     }
 }

@@ -10,116 +10,122 @@ import java.util.stream.Collectors;
 
 public class FileManager {
 
+    private static final Logger LOG = Logger.getLogger(FileManager.class.getName());
     private static FileManager fileManager;
 
-    private Map<String, String> files;
-
-    private String userName;
-
-    private String fileSeparator = System.getProperty("file.separator");
-    private String rootFolder;
-
-
-    private final Logger LOG = Logger.getLogger(FileManager.class.getName());
+    private final Map<String, String> files;
+    private final String userName;
+    private final String rootFolder;
+    private final String fileSeparator = System.getProperty("file.separator");
 
     private FileManager(String userName) {
-        files = new HashMap<>();
+        this.userName = Objects.requireNonNull(userName, "Username cannot be null");
+        this.rootFolder = "." + fileSeparator + this.userName;
+        this.files = new HashMap<>();
 
-        this.userName = userName;
-        this.rootFolder =   "." + fileSeparator + this.userName;
-
-        ArrayList<String> fullList = readFileNamesFromResources();
-
-        Random r = new Random();
-
-        for (int i = 0; i < 5; i++){
-            files.put(fullList.get(r.nextInt(fullList.size())), "");
-        }
-
-        printFileNames();
+        initializeFileStorage();
     }
 
     public static synchronized FileManager getInstance(String userName) {
         if (fileManager == null) {
             fileManager = new FileManager(userName);
-
         }
         return fileManager;
     }
 
+    private void initializeFileStorage() {
+        List<String> availableFiles = readFileNamesFromResources();
+        if (!availableFiles.isEmpty()) {
+            Random random = new Random();
+            for (int i = 0; i < Math.min(5, availableFiles.size()); i++) {
+                String randomFile = availableFiles.get(random.nextInt(availableFiles.size()));
+                files.put(randomFile, "");
+            }
+            printFileNames();
+        } else {
+            LOG.warning("No files found in resources");
+        }
+    }
+
     public boolean addFile(String fileName, String filePath) {
-        this.files.put(fileName, filePath);
+        if (fileName == null || fileName.trim().isEmpty()) {
+            return false;
+        }
+        files.put(fileName.trim(), filePath != null ? filePath.trim() : "");
         return true;
     }
 
     public Set<String> searchForFile(String query) {
-
-        Set<String> result = new HashSet<String>();
-
-        for (String key: this.files.keySet()){
-            boolean contains = key.toLowerCase().contains(query.trim().toLowerCase());
-            if (contains) result.add(key);
+        if (query == null || query.trim().isEmpty()) {
+            return Collections.emptySet();
         }
 
-        return result;
+        String searchTerm = query.trim().toLowerCase();
+        return files.keySet().stream()
+                .filter(fileName -> fileName.toLowerCase().contains(searchTerm))
+                .collect(Collectors.toSet());
     }
 
-    private ArrayList<String> readFileNamesFromResources(){
+    private List<String> readFileNamesFromResources() {
+        List<String> fileNames = new ArrayList<>();
 
-        ArrayList<String> fileNames = new ArrayList<>();
+        try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream(Constants.FILE_NAMES);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
 
-        //Get file from resources folder
-        ClassLoader classLoader = getClass().getClassLoader();
-        BufferedReader bufferedReader = new BufferedReader(new InputStreamReader
-                (classLoader.getResourceAsStream(Constants.FILE_NAMES)));
-
-        try {
-
-            for (String line; (line = bufferedReader.readLine()) != null;) {
-                fileNames.add(line);
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.trim().isEmpty()) {
+                    fileNames.add(line.trim());
+                }
             }
-
-            bufferedReader.close();
-
-        } catch (IOException e) {
-            e.printStackTrace();
+        } catch (IOException | NullPointerException e) {
+            LOG.log(Level.SEVERE, "Error reading file names from resources", e);
         }
 
         return fileNames;
     }
 
     private void printFileNames() {
-        System.out.println("Total files: " + files.size());
-        System.out.println("++++++++++++++++++++++++++");
-        for (String s: files.keySet()) {
-            System.out.println(s);
-            createFile(s);
-        }
+        LOG.info("Total files: " + files.size());
+        LOG.info("++++++++++++++++++++++++++");
+        files.keySet().forEach(fileName -> {
+            LOG.info(fileName);
+            createFile(fileName);
+        });
     }
 
     public List<String> getFileNames() {
-        return files.keySet().stream().collect(Collectors.toList());
-
+        return new ArrayList<>(files.keySet());
     }
 
     public void createFile(String fileName) {
+        if (fileName == null || fileName.trim().isEmpty()) {
+            return;
+        }
+
         try {
-            String absoluteFilePath = this.rootFolder + fileSeparator + fileName;
-            File file = new File(absoluteFilePath);
-            file.getParentFile().mkdir();
-            if (file.createNewFile()) {
-                LOG.fine(absoluteFilePath + " File Created");
-            } else LOG.fine("File " + absoluteFilePath + " already exists");
-            RandomAccessFile f = new RandomAccessFile(file, "rw");
-            f.setLength(1024 * 1024 * 8);
+            Path filePath = Paths.get(rootFolder, fileName);
+            Files.createDirectories(filePath.getParent());
+
+            if (Files.notExists(filePath)) {
+                Files.createFile(filePath);
+                LOG.fine("File created: " + filePath);
+
+                try (RandomAccessFile file = new RandomAccessFile(filePath.toFile(), "rw")) {
+                    file.setLength(1024 * 1024 * 8); // 8MB file size
+                }
+            } else {
+                LOG.fine("File already exists: " + filePath);
+            }
         } catch (IOException e) {
-            LOG.severe("File creating failed");
-            e.printStackTrace();
+            LOG.log(Level.SEVERE, "Failed to create file: " + fileName, e);
         }
     }
 
     public File getFile(String fileName) {
-        File file = new File(rootFolder + fileSeparator + fileName);
-        return file;
+        if (fileName == null || fileName.trim().isEmpty()) {
+            return null;
+        }
+        return Paths.get(rootFolder, fileName.trim()).toFile();
     }
 }

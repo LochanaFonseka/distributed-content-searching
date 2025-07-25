@@ -18,137 +18,152 @@ import java.util.logging.Logger;
 
 public class SearchQueryHandler implements AbstractResponseHandler, AbstractRequestHandler {
 
-    private final Logger LOG = Logger.getLogger(SearchQueryHandler.class.getName());
+    private static final Logger logger = Logger.getLogger(SearchQueryHandler.class.getName());
 
-    private RoutingTable routingTable;
+    private RoutingTable nodeRoutingTable;
+    private BlockingQueue<ChannelMessage> outgoingMessages;
+    private TimeoutManager requestTimeoutManager;
+    private FileManager localFileManager;
 
-    private BlockingQueue<ChannelMessage> channelOut;
+    private static SearchQueryHandler instance;
 
-    private TimeoutManager timeoutManager;
-
-    private static SearchQueryHandler searchQueryHandler;
-
-    private FileManager fileManager;
-
-    private SearchQueryHandler(){
-        fileManager = FileManager.getInstance("");
+    private SearchQueryHandler() {
+        this.localFileManager = FileManager.getInstance("");
     }
 
-    public synchronized static SearchQueryHandler getInstance(){
-        if (searchQueryHandler == null){
-            searchQueryHandler = new SearchQueryHandler();
+    public static synchronized SearchQueryHandler getInstance() {
+        if (instance == null) {
+            instance = new SearchQueryHandler();
         }
-        return searchQueryHandler;
+        return instance;
     }
 
-    public void doSearch(String keyword) {
-
-        String payload = String.format(Constants.QUERY_FORMAT,
-                this.routingTable.getAddress(),
-                this.routingTable.getPort(),
-                StringEncoderDecoder.encode(keyword),
-                Constants.HOP_COUNT);
-
-        String rawMessage = String.format(Constants.MSG_FORMAT, payload.length() + 5, payload);
-
-        ChannelMessage initialMessage = new ChannelMessage(
-                this.routingTable.getAddress(),
-                this.routingTable.getPort(),
-                rawMessage);
-
-        this.handleResponse(initialMessage);
+    public void initiateFileSearch(String searchTerm) {
+        String queryPayload = buildSearchQueryPayload(searchTerm);
+        ChannelMessage initialMessage = createChannelMessage(queryPayload);
+        processIncomingMessage(initialMessage);
     }
 
     @Override
     public void sendRequest(ChannelMessage message) {
         try {
-            channelOut.put(message);
+            outgoingMessages.put(message);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
+            logger.log(Level.WARNING, "Message sending interrupted", e);
         }
     }
 
     @Override
-    public void init(RoutingTable routingTable, BlockingQueue<ChannelMessage> channelOut,
+    public void init(RoutingTable routingTable,
+                     BlockingQueue<ChannelMessage> channelOut,
                      TimeoutManager timeoutManager) {
-        this.routingTable = routingTable;
-        this.channelOut = channelOut;
-        this.timeoutManager = timeoutManager;
+        this.nodeRoutingTable = routingTable;
+        this.outgoingMessages = channelOut;
+        this.requestTimeoutManager = timeoutManager;
     }
 
     @Override
     public void handleResponse(ChannelMessage message) {
-        LOG.fine("Received SER : " + "[content-hidden]"
-                + " from: " + message.getAddress()
-                + " port: " + message.getPort());
+        logger.fine("Received search request from: " + message.getAddress() +
+                ":" + message.getPort());
 
-        StringTokenizer stringToken = new StringTokenizer(message.getMessage(), " ");
+        SearchRequest request = parseSearchRequest(message);
+        processSearchRequest(request);
+    }
 
-        String length = stringToken.nextToken();
-        String keyword = stringToken.nextToken();
-        String address = stringToken.nextToken().trim();
-        int port = Integer.parseInt(stringToken.nextToken().trim());
+    private String buildSearchQueryPayload(String searchTerm) {
+        return String.format(Constants.QUERY_FORMAT,
+                nodeRoutingTable.getAddress(),
+                nodeRoutingTable.getPort(),
+                StringEncoderDecoder.encode(searchTerm),
+                Constants.HOP_COUNT);
+    }
 
-        String fileName = StringEncoderDecoder.decode(stringToken.nextToken().trim());
-        int hops = Integer.parseInt(stringToken.nextToken().trim());
+    private ChannelMessage createChannelMessage(String payload) {
+        String formattedMessage = String.format(Constants.MSG_FORMAT,
+                payload.length() + 5, payload);
+        return new ChannelMessage(
+                nodeRoutingTable.getAddress(),
+                nodeRoutingTable.getPort(),
+                formattedMessage);
+    }
 
-        //search for the file in the current node
-        Set<String> resultSet = fileManager.searchForFile(fileName);
-        int fileNamesCount = resultSet.size();
+    private SearchRequest parseSearchRequest(ChannelMessage message) {
+        String[] parts = message.getMessage().split(" ");
+        return new SearchRequest(
+                parts[2].trim(), // address
+                Integer.parseInt(parts[3].trim()), // port
+                StringEncoderDecoder.decode(parts[4].trim()), // fileName
+                Integer.parseInt(parts[5].trim()) // hops
+        );
+    }
 
-        if (fileNamesCount != 0) {
+    private void processSearchRequest(SearchRequest request) {
+        Set<String> matchingFiles = localFileManager.searchForFile(request.getFileName());
 
-            StringBuilder fileNamesString = new StringBuilder("");
-
-            Iterator<String> itr = resultSet.iterator();
-
-            while(itr.hasNext()){
-                fileNamesString.append(StringEncoderDecoder.encode(itr.next()) + " ");
-            }
-
-            String payload = String.format(Constants.QUERY_HIT_FORMAT,
-                    fileNamesCount,
-                    routingTable.getAddress(),
-                    routingTable.getPort(),
-                    Constants.HOP_COUNT- hops,
-                    fileNamesString.toString());
-
-            String rawMessage = String.format(Constants.MSG_FORMAT, payload.length() + 5, payload);
-
-            ChannelMessage queryHitMessage = new ChannelMessage(address,
-                    port,
-                    rawMessage);
-
-            this.sendRequest(queryHitMessage);
+        if (!matchingFiles.isEmpty()) {
+            sendQueryHitResponse(request, matchingFiles);
         }
 
-        //if the hop count is greater than zero send the message to all neighbours again
-
-        if (hops > 0){
-            ArrayList<Neighbour> neighbours = this.routingTable.getNeighbours();
-
-            for(Neighbour neighbour: neighbours){
-
-                //skip sending search query to the same node again
-                if (neighbour.getAddress().equals(message.getAddress())
-                        && neighbour.getClientPort() == message.getPort()) {
-                    continue;
-                }
-
-                String payload = String.format(Constants.QUERY_FORMAT,
-                        address,
-                        port,
-                        StringEncoderDecoder.encode(fileName),
-                        hops - 1);
-
-                String rawMessage = String.format(Constants.MSG_FORMAT, payload.length() + 5, payload);
-
-                ChannelMessage queryMessage = new ChannelMessage(neighbour.getAddress(),
-                        neighbour.getPort(),
-                        rawMessage);
-
-                this.sendRequest(queryMessage);
-            }
+        if (request.getHops() > 0) {
+            forwardSearchRequest(request);
         }
+    }
+
+    private void sendQueryHitResponse(SearchRequest request, Set<String> matchingFiles) {
+        String fileList = matchingFiles.stream()
+                .map(StringEncoderDecoder::encode)
+                .collect(Collectors.joining(" "));
+
+        String payload = String.format(Constants.QUERY_HIT_FORMAT,
+                matchingFiles.size(),
+                nodeRoutingTable.getAddress(),
+                nodeRoutingTable.getPort(),
+                Constants.HOP_COUNT - request.getHops(),
+                fileList);
+
+        ChannelMessage response = createChannelMessage(payload);
+        response.setDestination(request.getAddress(), request.getPort());
+        sendRequest(response);
+    }
+
+    private void forwardSearchRequest(SearchRequest originalRequest) {
+        nodeRoutingTable.getNeighbours().stream()
+                .filter(neighbour -> !isOriginalSender(neighbour, originalRequest))
+                .forEach(neighbour -> forwardToNeighbour(neighbour, originalRequest));
+    }
+
+    private boolean isOriginalSender(Neighbour neighbour, SearchRequest request) {
+        return neighbour.getAddress().equals(request.getAddress()) &&
+                neighbour.getClientPort() == request.getPort();
+    }
+
+    private void forwardToNeighbour(Neighbour neighbour, SearchRequest request) {
+        String payload = String.format(Constants.QUERY_FORMAT,
+                request.getAddress(),
+                request.getPort(),
+                StringEncoderDecoder.encode(request.getFileName()),
+                request.getHops() - 1);
+
+        ChannelMessage forwardedMessage = createChannelMessage(payload);
+        forwardedMessage.setDestination(neighbour.getAddress(), neighbour.getPort());
+        sendRequest(forwardedMessage);
+    }
+
+    private static class SearchRequest {
+        private final String address;
+        private final int port;
+        private final String fileName;
+        private final int hops;
+
+        public SearchRequest(String address, int port, String fileName, int hops) {
+            this.address = address;
+            this.port = port;
+            this.fileName = fileName;
+            this.hops = hops;
+        }
+
+        // Getters omitted for brevity
     }
 }
