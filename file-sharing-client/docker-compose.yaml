@@ -1,0 +1,12 @@
+services:
+  node-backend:
+    build:
+      context: .
+    ports:
+      - "8080:8080" # Maps port 8081 on the host to port 8080 in the container
+    # network_mode: host # Allows the container to use the host's network stack
+  node-backend-2:
+    build:
+      context: .
+    ports:
+      - "8081:8081"

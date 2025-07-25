@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Distributed File Sharing</title>
+</head>
+<body>
+<h1>Distributed File Sharing</h1>
+<div>
+    <h2>Node Information</h2>
+    <p>IP Address: <span th:text="${ipAddress}"></span></p>
+    <p>Port: <span th:text="${port}"></span></p>
+</div>
+<div>
+    <h2>Available Files</h2>
+    <ul>
+        <li th:each="file : ${availableFiles}" th:text="${file}"></li>
+    </ul>
+</div>
+<div>
+    <h2>Search Files</h2>
+    <form th:action="@{/client/search-file}" method="get">
+        <input type="text" name="filename" placeholder="Enter filename"/>
+        <button type="submit">Search</button>
+    </form>
+    <div>
+        <h3>Search Results</h3>
+        <ul>
+            <li th:each="node : ${searchResults}" th:text="${node.ip + ':' + node.port}"></li>
+        </ul>
+    </div>
+</div>
+<div>
+    <h2>Download File</h2>
+    <form th:action="@{/client/download-file}" method="get">
+        <input type="text" name="filename" placeholder="Enter filename"/>
+        <button type="submit">Download</button>
+    </form>
+</div>
+</body>
+</html>
