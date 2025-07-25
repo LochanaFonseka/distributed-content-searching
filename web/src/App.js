@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import Unregister from './components/Unregister';
-import RoutingTable from './components/RoutingTable';
-import SearchFile from './components/SearchFile';
-import NodeFiles from './components/NodeFiles';
-import './App.css'; // Ensure to link the CSS file for styling
+import React, { useState } from "react";
+import Unregister from "./components/Unregister";
+import RoutingTable from "./components/RoutingTable";
+import SearchFile from "./components/SearchFile";
+import NodeFiles from "./components/NodeFiles";
+import "./App.css";
 
 const App = () => {
   const [isUnregistered, setIsUnregistered] = useState(false);
@@ -14,27 +14,36 @@ const App = () => {
 
   return (
     <div className="App">
-      <h1>Distributed Content Searching</h1>
-      {isUnregistered ? (
-        <div className="unregister-success">
-          <h2>You have unregistered successfully</h2>
-        </div>
-      ) : (
-        <>
-          <Unregister onSuccess={handleUnregisterSuccess} />
-          <div className="main-container">
-            <div className="section">
-              <RoutingTable />
-            </div>
-            <div className="section node-files-section">
-              <NodeFiles />
-            </div>
-            <div className="section">
-              <SearchFile />
-            </div>
+      <header className="app-header">
+        <h1 className="title">📁 Distributed File Content Search System</h1>
+        {!isUnregistered && (
+          <div className="unregister-icon">
+            <Unregister onSuccess={handleUnregisterSuccess} />
           </div>
-        </>
-      )}
+        )}
+      </header>
+
+      <main className="app-main-layout">
+        {isUnregistered ? (
+          <div className="unregister-success">
+            <h2>✅ You have unregistered successfully</h2>
+          </div>
+        ) : (
+          <>
+            <section className="content-row">
+              <div className="half-section">
+                <NodeFiles />
+              </div>
+              <div className="half-section">
+                <SearchFile />
+              </div>
+            </section>
+            <footer className="routing-footer">
+              <RoutingTable />
+            </footer>
+          </>
+        )}
+      </main>
     </div>
   );
 };
