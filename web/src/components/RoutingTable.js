@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { getRoutingTable } from '../api';
+import React, { useState, useEffect } from "react";
+import { getRoutingTable } from "../api";
 
 const RoutingTable = () => {
   const [table, setTable] = useState(null);
@@ -9,8 +9,8 @@ const RoutingTable = () => {
       const response = await getRoutingTable();
       setTable(response.data);
     } catch (error) {
-      console.error('Error fetching routing table:', error);
-      alert('Failed to fetch routing table');
+      console.error("Error fetching routing table:", error);
+      alert("Failed to fetch routing table");
     }
   };
 
@@ -24,11 +24,11 @@ const RoutingTable = () => {
   }, []);
 
   return (
-    <div>
-      <h2>Routing Table</h2>
+    <div className="routing-table-container">
+      <h2 className="routing-table-heading">Routing Table</h2>
       {table ? (
         <div>
-          <p>Total neighbours: {table.count}</p>
+          <p className="total-neighbours">Total neighbours: {table.count}</p>
           <table className="routing-table">
             <thead>
               <tr>

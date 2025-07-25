@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { searchFile, downloadFile } from '../api';
+import React, { useState } from "react";
+import { searchFile, downloadFile } from "../api";
 
 const SearchFile = () => {
-  const [filename, setFilename] = useState('');
+  const [filename, setFilename] = useState("");
   const [results, setResults] = useState([]);
 
   const handleSearchFile = async () => {
@@ -12,7 +12,7 @@ const SearchFile = () => {
       setResults(resultsArray);
     } catch (error) {
       console.error(error);
-      alert('Failed to search file');
+      alert("Failed to search file");
     }
   };
 
@@ -20,27 +20,30 @@ const SearchFile = () => {
     try {
       const response = await downloadFile(filename);
       const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = url;
-      link.setAttribute('download', filename);
+      link.setAttribute("download", filename);
       document.body.appendChild(link);
       link.click();
     } catch (error) {
       console.error(error);
-      alert('Failed to download file');
+      alert("Failed to download file");
     }
   };
 
   return (
     <div>
-      <h2>Search File</h2>
+      <h2 className="node-files-heading">Search File</h2>
       <input
         type="text"
+        className="search-input"
         value={filename}
         onChange={(e) => setFilename(e.target.value)}
         placeholder="Enter file name"
       />
-      <button onClick={handleSearchFile}>Search</button>
+      <button className="search-button" onClick={handleSearchFile}>
+        Search
+      </button>
       {results.length > 0 && (
         <table className="search-table">
           <thead>
@@ -62,7 +65,13 @@ const SearchFile = () => {
                 <td>{result.timeElapsed}</td>
                 <td>{result.hops}</td>
                 <td>
-                  <button onClick={() => handleDownloadFile(`${result.address}:${result.port}${result.fileName}`)}>
+                  <button
+                    onClick={() =>
+                      handleDownloadFile(
+                        `${result.address}:${result.port}${result.fileName}`
+                      )
+                    }
+                  >
                     Download
                   </button>
                 </td>
