@@ -5,7 +5,7 @@ const SearchFile = () => {
   const [filename, setFilename] = useState("");
   const [results, setResults] = useState([]);
 
-  const handleSearchFile = async () => {
+  const handleFileSearch = async () => {
     try {
       const response = await searchFile(filename);
       const resultsArray = Object.values(response.data);
@@ -16,7 +16,7 @@ const SearchFile = () => {
     }
   };
 
-  const handleDownloadFile = async (filename) => {
+  const handleFileDownload = async (filename) => {
     try {
       const response = await downloadFile(filename);
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -41,7 +41,7 @@ const SearchFile = () => {
         onChange={(e) => setFilename(e.target.value)}
         placeholder="Enter file name"
       />
-      <button className="search-button" onClick={handleSearchFile}>
+      <button className="search-button" onClick={handleFileSearch}>
         Search
       </button>
       {results.length > 0 && (
@@ -67,7 +67,7 @@ const SearchFile = () => {
                 <td>
                   <button
                     onClick={() =>
-                      handleDownloadFile(
+                      handleFileDownload(
                         `${result.address}:${result.port}${result.fileName}`
                       )
                     }

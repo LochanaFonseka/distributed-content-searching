@@ -1,21 +1,21 @@
-import React from 'react';
-import { unregister } from '../api';
+import React from "react";
+import { nodeUnregister } from "../api";
 
 const Unregister = ({ onSuccess }) => {
-  const handleUnregister = async () => {
+  const handleNodeUnregister = async () => {
     try {
-      const response = await unregister();
+      const response = await nodeUnregister();
       alert(response.data);
       onSuccess(); // Call the success callback
     } catch (error) {
       console.error(error);
-      alert('Unregistration failed');
+      alert("Unregistration failed");
     }
   };
 
   return (
     <div>
-      <button className="unregister-button" onClick={handleUnregister}>
+      <button className="unregister-button" onClick={handleNodeUnregister}>
         Unregister
       </button>
     </div>

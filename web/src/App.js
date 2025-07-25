@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import Unregister from "./components/Unregister";
+import Unregister from "./components/NodeUnregister";
 import RoutingTable from "./components/RoutingTable";
-import SearchFile from "./components/SearchFile";
+import SearchFile from "./components/FileSearch";
 import NodeFiles from "./components/NodeFiles";
 import "./App.css";
 

@@ -4,7 +4,7 @@ import { getCurrentNodeFiles } from "../api";
 const NodeFiles = () => {
   const [files, setFiles] = useState([]);
 
-  const fetchFiles = async () => {
+  const fetchNodeFiles = async () => {
     try {
       const response = await getCurrentNodeFiles();
       setFiles(response.data.fileNameList); // Adjusted to match the API response structure
@@ -15,7 +15,7 @@ const NodeFiles = () => {
   };
 
   useEffect(() => {
-    fetchFiles();
+    fetchNodeFiles();
   }, []);
 
   return (
