@@ -1,12 +1,51 @@
 services:
-  node-backend:
+  node-1:
     build:
       context: .
     ports:
-      - "8080:8080" # Maps port 8081 on the host to port 8080 in the container
-    # network_mode: host # Allows the container to use the host's network stack
-  node-backend-2:
+      - "5001:5001"
+  node-2:
     build:
       context: .
     ports:
-      - "8081:8081"
+      - "5002:5002"
+  node-3:
+    build:
+      context: .
+    ports:
+      - "5003:5003"
+  # node-4:
+  #   build:
+  #     context: .
+  #   ports:
+  #     - "5004:5004"
+  # node-5:
+  #   build:
+  #     context: .
+  #   ports:
+  #     - "5005:5005"
+  # node-6:
+  #   build:
+  #     context: .
+  #   ports:
+  #     - "5006:5006"
+  # node-7:
+  #   build:
+  #     context: .
+  #   ports:
+  #     - "5007:5007"
+  # node-8:
+  #   build:
+  #     context: .
+  #   ports:
+  #     - "5008:5008"
+  # node-9:
+  #   build:
+  #     context: .
+  #   ports:
+  #     - "5009:5009"
+  # node-10:
+  #   build:
+  #     context: .
+  #   ports:
+  #     - "5010:5010"
